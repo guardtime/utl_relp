@@ -18,17 +18,16 @@ create or replace package body &&target..utl_relp is
  * Guardtime, Inc., and no license to trademarks is granted; Guardtime
  * reserves and retains all trademark rights.
  */
-
+ 
   type message_typ is record (
     txnr pls_integer,
-    command varchar2(200),
+    command command_typ(200),
     payload raw(32000)
   );
-  g_lockhandle varchar2(200);
 
   procedure close_finally(p_session in out nocopy relp_session_typ) is
   begin
-        utl_tcp.close_connection(p_session.connection);
+    utl_tcp.close_connection(p_session.connection);
   exception
     when others then
       null;
@@ -120,7 +119,7 @@ create or replace package body &&target..utl_relp is
     
     -- Check for the response code.
     if utl_raw.cast_to_varchar2(l_resp.payload) not like '200 OK%' then
-      raise_application_error(RELP_ERROR, 'Error from server, closing connection: "' || utl_raw.cast_to_varchar2(l_resp.payload) || '"');
+      raise_application_error(RELP_ERROR_CODE, 'Error from server, closing connection: "' || utl_raw.cast_to_varchar2(l_resp.payload) || '"');
     end if;
     
     p_session.txnr := p_session.txnr + 1;
@@ -135,7 +134,10 @@ create or replace package body &&target..utl_relp is
     return l_session;
   end init_relp;
 
-  procedure set_offer(p_session in out nocopy relp_session_typ, p_offer_name in varchar2, p_offer_mandatory in boolean) is
+  procedure set_offer(
+      p_session         in out nocopy relp_session_typ, 
+      p_offer_name      in            varchar2, 
+      p_offer_mandatory in            boolean) is
     l_status offers_status_typ;
   begin
     l_status.mandatory := p_offer_mandatory;
@@ -143,11 +145,23 @@ create or replace package body &&target..utl_relp is
     p_session.offers(p_offer_name) := l_status;
   end set_offer;
 
-  procedure connect_relp(p_session in out nocopy relp_session_typ) is
+  procedure connect_relp(
+      p_session     in out nocopy relp_session_typ, 
+      p_wallet_path in     varchar2                 default null, 
+      p_wallet_pass in     varchar2                 default null) is
   begin
     --close_finally(p_session);
     
-    p_session.connection := utl_tcp.open_connection(remote_host => p_session.host, remote_port => p_session.port, charset => 'UTF8');
+    p_session.connection := utl_tcp.open_connection(
+        remote_host => p_session.host, 
+        remote_port => p_session.port, 
+        charset => 'UTF8',
+        wallet_path => p_wallet_path,
+        wallet_password => p_wallet_pass);
+        
+    if p_wallet_path is not null or p_wallet_pass is not null then
+      utl_tcp.secure_connection(p_session.connection);
+    end if;
     
     -- Always reset the counter.
     p_session.txnr := 1;
