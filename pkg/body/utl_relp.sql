@@ -25,6 +25,9 @@ create or replace package body &&target..utl_relp is
     payload raw(32000)
   );
 
+  lf constant varchar2(1) := chr(10);
+  sp constant varchar2(1) := chr(32);
+  
   procedure close_finally(p_session in out nocopy relp_session_typ) is
   begin
     utl_tcp.close_connection(p_session.connection);
@@ -91,7 +94,7 @@ create or replace package body &&target..utl_relp is
   begin
     l_payload := utl_raw.cast_to_raw(convert(p_payload, 'UTF8'));
     
-    l_command := utl_raw.cast_to_raw(convert(p_session.txnr || ' ' || p_command || ' ' || utl_raw.length(l_payload) || ' ', 'UTF8'));
+    l_command := utl_raw.cast_to_raw(convert(p_session.txnr || sp || p_command || sp || utl_raw.length(l_payload) || sp, 'UTF8'));
     l_command := utl_raw.concat(l_command, l_payload);
     l_command := utl_raw.concat(l_command, utl_raw.cast_to_raw(chr(10)));
     
@@ -136,7 +139,7 @@ create or replace package body &&target..utl_relp is
 
   procedure set_offer(
       p_session         in out nocopy relp_session_typ, 
-      p_offer_name      in            varchar2, 
+      p_offer_name      in            command_typ, 
       p_offer_mandatory in            boolean) is
     l_status offers_status_typ;
   begin
@@ -149,6 +152,9 @@ create or replace package body &&target..utl_relp is
       p_session     in out nocopy relp_session_typ, 
       p_wallet_path in     varchar2                 default null, 
       p_wallet_pass in     varchar2                 default null) is
+    l_offers  varchar2(32000);
+    l_command command_typ;
+    l_payload varchar2(32000) := '';
   begin
     --close_finally(p_session);
     
@@ -163,15 +169,46 @@ create or replace package body &&target..utl_relp is
       utl_tcp.secure_connection(p_session.connection);
     end if;
     
+    l_command := p_session.offers.first;
+    while l_command is not null loop
+      if l_offers is not null then
+        l_offers := l_offers || ',' || l_command;
+      else
+        l_offers := l_command;
+      end if;
+      l_command := p_session.offers.next(l_command);
+    end loop;
+    
     -- Always reset the counter.
     p_session.txnr := 1;
     
-    write_command(p_session, 'open', 'commands=syslog' || chr(10) || 'relp_version=1');
+    l_payload := l_payload || 'commands=' || nvl(l_offers, 'syslog') || lf;
+    
+    l_payload := l_payload || 'relp_version=1' || lf;
+    
+    write_command(p_session, 'open', l_payload);
   end connect_relp;
   
-  procedure write_log(p_session in out nocopy relp_session_typ, p_message in varchar2) is
+  procedure write_log(
+      p_session in out nocopy relp_session_typ, 
+      p_message in varchar2, 
+      p_facility in pls_integer default null, 
+      p_severity in pls_integer default null,
+      p_process_id in varchar2 default null,
+      p_message_id in varchar2 default null,
+      p_structured_data in varchar2 default null) is
+    l_header varchar2(32000) := '';
   begin
-    write_command(p_session, 'syslog', p_message);
+    l_header := l_header || '<' || ( nvl(p_facility, 16) * 8 + nvl(p_severity, 6)) || '>'; /* Priority. */
+    l_header := l_header || '1 '; /* Version. */
+    l_header := l_header || to_char(l_entry.ntimestamp#,'YYYY-MM-DD') || 'T' || to_char(l_entry.ntimestamp#,'HH24:MI:SS.FF') || regexp_replace(dbtimezone, '^+00:00$', 'Z') ||' '; /* Timestamp. */
+    l_header := l_header || nvl(UTL_INADDR.get_host_name, '-') || ' '; /* Hostname. */
+    l_header := l_header || nvl(sys_context('userenv','db_name'), '-') || ' '; /* App-name. */
+    l_header := l_header || nvl(p_process_id, '-') || ' '; /* Process id. */
+    l_header := l_header || nvl(p_message_id, '-') || ' '; /* Message id. */
+    l_header := l_header || nvl(p_structured_data, '-') || ' '; /* Structured data. */
+
+    write_command(p_session, 'syslog', l_header || p_message);
   end write_log;
   
   procedure close_relp(p_session in out nocopy relp_session_typ) is

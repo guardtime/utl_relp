@@ -28,16 +28,22 @@ create or replace package &&target..utl_relp is
   pragma exception_init (INVALID_RESPONSE, -20002);
   
   RELP_ERROR exception;
-  RELP_ERRPR_CODE constant pls_integer := -20003;
+  RELP_ERROR_CODE constant pls_integer := -20003;
   pragma exception_init (RELP_ERROR, -20003);
+  
+  CONNECTION_ERROR exception;
+  CONNECTION_ERROR_CODE constant pls_integer := -20004;
+  pragma exception_init (CONNECTION_ERROR, -20004);
  
+
+  subtype command_typ is varchar2(32);
 
   type offers_status_typ is record (
     available boolean,
     mandatory boolean
   );
   
-  type offer_set_typ is table of offers_status_typ index by varchar2(32);
+  type offer_set_typ is table of offers_status_typ index by command_typ;
   
   type relp_session_typ is record (
     txnr        number,
@@ -55,16 +61,23 @@ create or replace package &&target..utl_relp is
    ****************************************************************************/
   function init_relp(p_host in varchar2, p_port number) return relp_session_typ;
 
-  procedure set_offer(p_session in out nocopy relp_session_typ, p_offer_name in varchar2, p_offer_mandatory in boolean);
+  procedure set_offer(p_session in out nocopy relp_session_typ, p_offer_name in command_typ, p_offer_mandatory in boolean);
 
-  procedure connect_relp(p_session in out nocopy relp_session_typ);
+  procedure connect_relp(p_session in out nocopy relp_session_typ, p_wallet_path in varchar2 default null, p_wallet_pass in varchar2 default null);
   
   /*****************************************************************************
    ** Procedure: write_log
    ** Description: sends a log message to the loggin server.
    ** In: p_message - log message.
    ****************************************************************************/
-  procedure write_log(p_session in out nocopy relp_session_typ, p_message in varchar2);
+  procedure write_log(
+      p_session in out nocopy relp_session_typ, 
+      p_message in varchar2, 
+      p_facility in pls_integer default null, 
+      p_severity in pls_integer default null,
+      p_process_id in varchar2 default null,
+      p_message_id in varchar2 default null,
+      p_structured_data in varchar2 default null);
 
   /*****************************************************************************
    ** Procedure: close_logger
