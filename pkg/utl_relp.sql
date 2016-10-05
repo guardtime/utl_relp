@@ -35,6 +35,9 @@ create or replace package &&target..utl_relp is
   CONNECTION_ERROR_CODE constant pls_integer := -20004;
   pragma exception_init (CONNECTION_ERROR, -20004);
  
+  COMMAND_NOT_SUPPORTED exception;
+  COMMAND_NOT_SUPPORTED_CODE constant pls_integer := -20005;
+  pragma exception_init (COMMAND_NOT_SUPPORTED, -20005);
 
   subtype command_typ is varchar2(32);
 

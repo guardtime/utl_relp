@@ -19,6 +19,10 @@ create or replace package body &&target..utl_relp is
  * reserves and retains all trademark rights.
  */
  
+  subtype featurename_typ is varchar2(320);
+  subtype featurevalue_typ is varchar2(2550);
+  type feature_map_typ is table of featurevalue_typ index by featurename_typ;
+ 
   type message_typ is record (
     txnr pls_integer,
     command command_typ(200),
@@ -85,7 +89,10 @@ create or replace package body &&target..utl_relp is
       raise_application_error(CONNECTION_ERROR_CODE, 'Unable to read response: ' || dbms_utility.format_error_backtrace || ', ' || sqlerrm);
   end read_response;
   
-  procedure write_command(p_session in out nocopy relp_session_typ, p_command in varchar2, p_payload in varchar2) is
+  function write_command(
+      p_session in out nocopy relp_session_typ, 
+      p_command in            varchar2, 
+      p_payload in            varchar2) return message_typ is
     l_command raw(32000);
     l_payload raw(32000); 
     l_bytes   pls_integer;
@@ -126,6 +133,8 @@ create or replace package body &&target..utl_relp is
     end if;
     
     p_session.txnr := p_session.txnr + 1;
+    
+    return l_resp;
   end write_command;
 
   function init_relp(p_host in varchar2, p_port number) return relp_session_typ is
@@ -148,6 +157,32 @@ create or replace package body &&target..utl_relp is
     p_session.offers(p_offer_name) := l_status;
   end set_offer;
 
+  function parse_offers(p_payload in varchar2) return feature_map_typ is
+    l_map feature_map_typ;
+    l_name featurename_typ;
+    l_value featurevalue_typ;
+    l_pos pls_integer;
+    l_byte raw(1);
+    l_line varchar2(32000);
+  begin 
+    l_pos := 1;
+    
+    loop
+      -- Start from the second line, as the first one will be 200 OK.
+      l_pos := l_pos + 1;
+    
+      l_line := regexp_substr(p_payload, '[^' || lf || ']+', 1, l_pos);
+      exit when l_line is null;
+      
+      l_name := regexp_substr(l_line, '[^=]+', 1, 1);
+      l_value := substr(l_line, length(l_name) + 2);
+      
+      l_map(l_name) := l_value;
+    end loop;
+    
+    return l_map;
+  end parse_offers;
+
   procedure connect_relp(
       p_session     in out nocopy relp_session_typ, 
       p_wallet_path in     varchar2                 default null, 
@@ -155,6 +190,7 @@ create or replace package body &&target..utl_relp is
     l_offers  varchar2(32000);
     l_command command_typ;
     l_payload varchar2(32000) := '';
+    l_resp    message_typ;
   begin
     --close_finally(p_session);
     
@@ -186,7 +222,53 @@ create or replace package body &&target..utl_relp is
     
     l_payload := l_payload || 'relp_version=1' || lf;
     
-    write_command(p_session, 'open', l_payload);
+    l_resp := write_command(p_session, 'open', l_payload);
+    
+    declare
+      l_offers feature_map_typ;
+      l_command featurename_typ;
+      l_pos pls_integer;
+      l_offer_status offers_status_typ;
+    begin
+      -- Parse the response and update the supported commands.
+      l_offers := parse_offers(utl_raw.cast_to_varchar2(l_resp.payload));
+      
+      -- Loop over all the commands.
+      if l_offers.exists('commands') then
+        l_pos := 0;
+        loop
+          l_pos := l_pos + 1;
+          l_command := regexp_substr(l_offers('commands'), '[^,]+', 1, l_pos);
+          
+          exit when l_command is null;
+                    
+          if p_session.offers.exists(l_command) then
+            p_session.offers(l_command).available := true;
+          else
+            l_offer_status.mandatory := false;
+            l_offer_status.available := true;
+            p_session.offers(l_command) := l_offer_status;
+          end if;
+        end loop;
+      end if;
+
+      -- Loop over all the offers and raise an error if a mandatory offer is missing.
+      if p_session.offers.first is not null then
+        l_command := p_session.offers.first;
+        loop
+          exit when l_command is null;
+          
+          if p_session.offers(l_command).mandatory and not p_session.offers(l_command).available then
+            raise_application_error(COMMAND_NOT_SUPPORTED_CODE, 'Mandatory command "' || l_command || '" not supported by the server.');
+          end if;
+          
+          l_command := p_session.offers.next(l_command);
+
+        end loop;
+      end if;
+    end;
+    
+    
   end connect_relp;
   
   procedure write_log(
@@ -197,25 +279,36 @@ create or replace package body &&target..utl_relp is
       p_process_id in varchar2 default null,
       p_message_id in varchar2 default null,
       p_structured_data in varchar2 default null) is
-    l_header varchar2(32000) := '';
+    l_header   varchar2(32000) := '';
+    l_hostname varchar2(32000) := '';
+    l_resp     message_typ;
   begin
+    begin
+      l_hostname := UTL_INADDR.get_host_name;
+    exception
+      when others
+        then null;
+    end;
+  
     l_header := l_header || '<' || ( nvl(p_facility, 16) * 8 + nvl(p_severity, 6)) || '>'; /* Priority. */
     l_header := l_header || '1 '; /* Version. */
-    l_header := l_header || to_char(l_entry.ntimestamp#,'YYYY-MM-DD') || 'T' || to_char(l_entry.ntimestamp#,'HH24:MI:SS.FF') || regexp_replace(dbtimezone, '^+00:00$', 'Z') ||' '; /* Timestamp. */
-    l_header := l_header || nvl(UTL_INADDR.get_host_name, '-') || ' '; /* Hostname. */
+    l_header := l_header || to_char(systimestamp,'YYYY-MM-DD') || 'T' || to_char(systimestamp,'HH24:MI:SS.FF') || regexp_replace(dbtimezone, '^+00:00$', 'Z') ||' '; /* Timestamp. */
+    l_header := l_header || nvl(l_hostname, '-') || ' '; /* Hostname. */
     l_header := l_header || nvl(sys_context('userenv','db_name'), '-') || ' '; /* App-name. */
     l_header := l_header || nvl(p_process_id, '-') || ' '; /* Process id. */
     l_header := l_header || nvl(p_message_id, '-') || ' '; /* Message id. */
     l_header := l_header || nvl(p_structured_data, '-') || ' '; /* Structured data. */
 
-    write_command(p_session, 'syslog', l_header || p_message);
+    l_resp := write_command(p_session, 'syslog', l_header || p_message);
   end write_log;
   
   procedure close_relp(p_session in out nocopy relp_session_typ) is
   begin
     -- Try to send a polite close message.
+    declare
+      l_resp message_typ;
     begin
-      write_command(p_session, 'close', null);
+      l_resp := write_command(p_session, 'close', null);
     exception
       when SERVER_CLOSED then
         null;
