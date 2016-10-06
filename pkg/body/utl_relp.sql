@@ -18,11 +18,7 @@ create or replace package body &&target..utl_relp is
  * Guardtime, Inc., and no license to trademarks is granted; Guardtime
  * reserves and retains all trademark rights.
  */
- 
-  subtype featurename_typ is varchar2(320);
-  subtype featurevalue_typ is varchar2(2550);
-  type feature_map_typ is table of featurevalue_typ index by featurename_typ;
- 
+  
   type message_typ is record (
     txnr pls_integer,
     command command_typ(200),
@@ -32,9 +28,9 @@ create or replace package body &&target..utl_relp is
   lf constant varchar2(1) := chr(10);
   sp constant varchar2(1) := chr(32);
   
-  procedure close_finally(p_session in out nocopy relp_session_typ) is
+  procedure close_finally(p_engine in out nocopy relp_engine_typ) is
   begin
-    utl_tcp.close_connection(p_session.connection);
+    utl_tcp.close_connection(p_engine.connection);
   exception
     when others then
       null;
@@ -90,7 +86,7 @@ create or replace package body &&target..utl_relp is
   end read_response;
   
   function write_command(
-      p_session in out nocopy relp_session_typ, 
+      p_engine in out nocopy relp_engine_typ, 
       p_command in            varchar2, 
       p_payload in            varchar2) return message_typ is
     l_command raw(32000);
@@ -101,20 +97,20 @@ create or replace package body &&target..utl_relp is
   begin
     l_payload := utl_raw.cast_to_raw(convert(p_payload, 'UTF8'));
     
-    l_command := utl_raw.cast_to_raw(convert(p_session.txnr || sp || p_command || sp || utl_raw.length(l_payload) || sp, 'UTF8'));
+    l_command := utl_raw.cast_to_raw(convert(p_engine.txnr || sp || p_command || sp || utl_raw.length(l_payload) || sp, 'UTF8'));
     l_command := utl_raw.concat(l_command, l_payload);
     l_command := utl_raw.concat(l_command, utl_raw.cast_to_raw(chr(10)));
-    
+        
     begin
-      l_bytes := utl_tcp.write_raw(p_session.connection, l_command);
-      utl_tcp.flush(p_session.connection);
+      l_bytes := utl_tcp.write_raw(p_engine.connection, l_command);
+      utl_tcp.flush(p_engine.connection);
     exception
       when others then
         raise_application_error(CONNECTION_ERROR_CODE, 'Unable to send log message: ' || dbms_utility.format_error_backtrace || ', ' || sqlerrm);
     end;
 
     -- Read the response from the server.
-    l_resp := read_response(p_session.connection);
+    l_resp := read_response(p_engine.connection);
     
     -- Check if the server is hanging up - serverclose with message id 0 is sent when the
     -- server is not happy with the request.
@@ -123,7 +119,7 @@ create or replace package body &&target..utl_relp is
     end if;
     
     -- Make sure the server is responding with rsp command and the message numbers match.
-    if l_resp.txnr != p_session.txnr or l_resp.command != 'rsp' then
+    if l_resp.txnr != p_engine.txnr or l_resp.command != 'rsp' then
       raise_application_error(INVALID_RESPONSE_CODE, 'Unexpected server response.');
     end if;
     
@@ -132,30 +128,30 @@ create or replace package body &&target..utl_relp is
       raise_application_error(RELP_ERROR_CODE, 'Error from server, closing connection: "' || utl_raw.cast_to_varchar2(l_resp.payload) || '"');
     end if;
     
-    p_session.txnr := p_session.txnr + 1;
+    p_engine.txnr := p_engine.txnr + 1;
     
     return l_resp;
   end write_command;
 
-  function init_relp(p_host in varchar2, p_port number) return relp_session_typ is
-    l_session relp_session_typ;
+  function engine_construct(p_host in varchar2, p_port number) return relp_engine_typ is
+    l_session relp_engine_typ;
   begin
     l_session.host := p_host;
     l_session.port := p_port;
   
     return l_session;
-  end init_relp;
+  end engine_construct;
 
-  procedure set_offer(
-      p_session         in out nocopy relp_session_typ, 
-      p_offer_name      in            command_typ, 
-      p_offer_mandatory in            boolean) is
-    l_status offers_status_typ;
+  procedure engine_enable_command(
+      p_engine    in out nocopy relp_engine_typ, 
+      p_command   in            command_typ, 
+      p_mandatory in            boolean) is
+    l_status command_status_typ;
   begin
-    l_status.mandatory := p_offer_mandatory;
+    l_status.mandatory := p_mandatory;
     l_status.available := false; -- Will change this if the server responds with it.
-    p_session.offers(p_offer_name) := l_status;
-  end set_offer;
+    p_engine.commands(p_command) := l_status;
+  end engine_enable_command;
 
   function parse_offers(p_payload in varchar2) return feature_map_typ is
     l_map feature_map_typ;
@@ -182,9 +178,27 @@ create or replace package body &&target..utl_relp is
     
     return l_map;
   end parse_offers;
+  
+  function serialize_offers(p_offers in feature_map_typ) return varchar2 is
+    l_feature featurename_typ;
+    l_result  varchar2(32000) := '';
+  begin
+    l_feature := p_offers.first;
+    while l_feature is not null loop
+      if length(l_result) > 0 then
+        l_result := l_result || lf;
+      end if;
+      
+      l_result := l_result || l_feature || '=' || p_offers(l_feature);
+      
+      l_feature := p_offers.next(l_feature);
+    end loop;
+    
+    return l_result;
+  end serialize_offers;
 
-  procedure connect_relp(
-      p_session     in out nocopy relp_session_typ, 
+  procedure engine_connect(
+      p_engine     in out nocopy relp_engine_typ, 
       p_wallet_path in     varchar2                 default null, 
       p_wallet_pass in     varchar2                 default null) is
     l_offers  varchar2(32000);
@@ -192,87 +206,90 @@ create or replace package body &&target..utl_relp is
     l_payload varchar2(32000) := '';
     l_resp    message_typ;
   begin
-    --close_finally(p_session);
+    --close_finally(p_engine);
     
-    p_session.connection := utl_tcp.open_connection(
-        remote_host => p_session.host, 
-        remote_port => p_session.port, 
+    p_engine.connection := utl_tcp.open_connection(
+        remote_host => p_engine.host, 
+        remote_port => p_engine.port, 
         charset => 'UTF8',
         wallet_path => p_wallet_path,
         wallet_password => p_wallet_pass);
         
     if p_wallet_path is not null or p_wallet_pass is not null then
-      utl_tcp.secure_connection(p_session.connection);
+      utl_tcp.secure_connection(p_engine.connection);
     end if;
     
-    l_command := p_session.offers.first;
+    -- Just in case check if the user has added manually some commands.
+    if p_engine.local_offers.exists('commands') then
+      l_offers := p_engine.local_offers('commands');
+    end if;
+    
+    l_command := p_engine.commands.first;
     while l_command is not null loop
       if l_offers is not null then
         l_offers := l_offers || ',' || l_command;
       else
         l_offers := l_command;
       end if;
-      l_command := p_session.offers.next(l_command);
+      l_command := p_engine.commands.next(l_command);
     end loop;
     
     -- Always reset the counter.
-    p_session.txnr := 1;
+    p_engine.txnr := 1;
     
-    l_payload := l_payload || 'commands=' || nvl(l_offers, 'syslog') || lf;
-    
-    l_payload := l_payload || 'relp_version=1' || lf;
-    
-    l_resp := write_command(p_session, 'open', l_payload);
+    p_engine.local_offers('relp_version') := '1';
+    p_engine.local_offers('commands') := nvl(l_offers, 'syslog');
+        
+    l_resp := write_command(p_engine, 'open', serialize_offers(p_engine.local_offers));
     
     declare
-      l_offers feature_map_typ;
       l_command featurename_typ;
       l_pos pls_integer;
-      l_offer_status offers_status_typ;
+      l_offer_status command_status_typ;
     begin
       -- Parse the response and update the supported commands.
-      l_offers := parse_offers(utl_raw.cast_to_varchar2(l_resp.payload));
+      p_engine.remote_offers := parse_offers(utl_raw.cast_to_varchar2(l_resp.payload));
       
       -- Loop over all the commands.
-      if l_offers.exists('commands') then
+      if p_engine.remote_offers.exists('commands') then
         l_pos := 0;
         loop
           l_pos := l_pos + 1;
-          l_command := regexp_substr(l_offers('commands'), '[^,]+', 1, l_pos);
+          l_command := regexp_substr(p_engine.remote_offers('commands'), '[^,]+', 1, l_pos);
           
           exit when l_command is null;
                     
-          if p_session.offers.exists(l_command) then
-            p_session.offers(l_command).available := true;
+          if p_engine.commands.exists(l_command) then
+            p_engine.commands(l_command).available := true;
           else
             l_offer_status.mandatory := false;
             l_offer_status.available := true;
-            p_session.offers(l_command) := l_offer_status;
+            p_engine.commands(l_command) := l_offer_status;
           end if;
         end loop;
       end if;
 
       -- Loop over all the offers and raise an error if a mandatory offer is missing.
-      if p_session.offers.first is not null then
-        l_command := p_session.offers.first;
+      if p_engine.commands.first is not null then
+        l_command := p_engine.commands.first;
         loop
           exit when l_command is null;
           
-          if p_session.offers(l_command).mandatory and not p_session.offers(l_command).available then
+          if p_engine.commands(l_command).mandatory and not p_engine.commands(l_command).available then
             raise_application_error(COMMAND_NOT_SUPPORTED_CODE, 'Mandatory command "' || l_command || '" not supported by the server.');
           end if;
           
-          l_command := p_session.offers.next(l_command);
+          l_command := p_engine.commands.next(l_command);
 
         end loop;
       end if;
     end;
     
     
-  end connect_relp;
+  end engine_connect;
   
   procedure write_log(
-      p_session in out nocopy relp_session_typ, 
+      p_engine in out nocopy relp_engine_typ, 
       p_message in varchar2, 
       p_facility in pls_integer default null, 
       p_severity in pls_integer default null,
@@ -299,26 +316,26 @@ create or replace package body &&target..utl_relp is
     l_header := l_header || nvl(p_message_id, '-') || ' '; /* Message id. */
     l_header := l_header || nvl(p_structured_data, '-') || ' '; /* Structured data. */
 
-    l_resp := write_command(p_session, 'syslog', l_header || p_message);
+    l_resp := write_command(p_engine, 'syslog', l_header || p_message);
   end write_log;
   
-  procedure close_relp(p_session in out nocopy relp_session_typ) is
+  procedure engine_destruct(p_engine in out nocopy relp_engine_typ) is
   begin
     -- Try to send a polite close message.
     declare
       l_resp message_typ;
     begin
-      l_resp := write_command(p_session, 'close', null);
+      l_resp := write_command(p_engine, 'close', null);
     exception
       when SERVER_CLOSED then
         null;
       when others then
         null; -- What else can we do?
     end;
-    utl_tcp.close_connection(p_session.connection);
+    utl_tcp.close_connection(p_engine.connection);
   exception 
     when others then
       -- TODO: Find out if we should raise some exceptions here.
       null; -- Still nothing to do.
-  end close_relp;
+  end engine_destruct;
 end utl_relp;
