@@ -133,15 +133,6 @@ create or replace package body &&target..utl_relp is
     return l_resp;
   end write_command;
 
-  function engine_construct(p_host in varchar2, p_port number) return relp_engine_typ is
-    l_session relp_engine_typ;
-  begin
-    l_session.host := p_host;
-    l_session.port := p_port;
-  
-    return l_session;
-  end engine_construct;
-
   procedure engine_enable_command(
       p_engine    in out nocopy relp_engine_typ, 
       p_command   in            command_typ, 
@@ -198,9 +189,11 @@ create or replace package body &&target..utl_relp is
   end serialize_offers;
 
   procedure engine_connect(
-      p_engine     in out nocopy relp_engine_typ, 
-      p_wallet_path in     varchar2                 default null, 
-      p_wallet_pass in     varchar2                 default null) is
+      p_engine      in out nocopy relp_engine_typ,
+      p_host        in            varchar2,
+      p_port        in            pls_integer,
+      p_wallet_path in            varchar2        default null, 
+      p_wallet_pass in            varchar2        default null) is
     l_offers  varchar2(32000);
     l_command command_typ;
     l_payload varchar2(32000) := '';
@@ -209,8 +202,8 @@ create or replace package body &&target..utl_relp is
     --close_finally(p_engine);
     
     p_engine.connection := utl_tcp.open_connection(
-        remote_host => p_engine.host, 
-        remote_port => p_engine.port, 
+        remote_host => p_host, 
+        remote_port => p_port, 
         charset => 'UTF8',
         wallet_path => p_wallet_path,
         wallet_password => p_wallet_pass);
@@ -222,9 +215,18 @@ create or replace package body &&target..utl_relp is
     -- Just in case check if the user has added manually some commands.
     if p_engine.local_offers.exists('commands') then
       l_offers := p_engine.local_offers('commands');
+    elsif p_engine.commands.first is null then
+      declare
+        l_status command_status_typ;
+      begin
+        l_status.mandatory := false;
+        l_status.available := false;
+        p_engine.commands('syslog') := l_status;
+      end;
     end if;
     
     l_command := p_engine.commands.first;
+    
     while l_command is not null loop
       if l_offers is not null then
         l_offers := l_offers || ',' || l_command;
@@ -238,7 +240,7 @@ create or replace package body &&target..utl_relp is
     p_engine.txnr := 1;
     
     p_engine.local_offers('relp_version') := '1';
-    p_engine.local_offers('commands') := nvl(l_offers, 'syslog');
+    p_engine.local_offers('commands') := l_offers;
         
     l_resp := write_command(p_engine, 'open', serialize_offers(p_engine.local_offers));
     

@@ -1,7 +1,6 @@
 set serveroutput on;
 declare
   l_relp utl_relp.relp_engine_typ;
---  l_nr pls_integer;
 begin
   utl_tcp.close_all_connections;
 
