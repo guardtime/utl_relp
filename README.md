@@ -14,6 +14,7 @@ The target schema needs to be added to the ACL with:
  * RESOLVE privilege on localhost (to be able to determine the hostname - this is sent witch each log message to the rsyslog server - see [RFC5424](https://tools.ietf.org/html/rfc5424)).
  * RESOLVE and CONNECT to the remote host where the logs are sent to.
 
+```
     BEGIN
     
       -- Configuration for the RELP service.
@@ -49,9 +50,11 @@ The target schema needs to be added to the ACL with:
       COMMIT;
     END; 
     /
+```
 
 ## Usage ##
 
+```
     declare
       l_relp utl_relp.relp_engine_typ;
     begin
@@ -64,6 +67,7 @@ The target schema needs to be added to the ACL with:
       -- Destruct the session.
       utl_relp.engine_destruct(l_relp);
 end;
+```
 
 ## License ##
 
