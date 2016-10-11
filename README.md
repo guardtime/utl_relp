@@ -15,7 +15,7 @@ The target schema needs to be added to the ACL with:
  * RESOLVE and CONNECT to the remote host where the logs are sent to.
 
     BEGIN
-
+    
       -- Configuration for the RELP service.
       DBMS_NETWORK_ACL_ADMIN.CREATE_ACL(
           acl => 'relp_remote.xml', 
@@ -23,17 +23,17 @@ The target schema needs to be added to the ACL with:
           principal => 'RELP_SCHEMA', 
           is_grant => true, 
           privilege => 'connect');
-
+    
       DBMS_NETWORK_ACL_ADMIN.ADD_PRIVILEGE(
           acl => 'relp_remote.xml', 
           principal => 'RELP_SCHEMA', 
           is_grant => true, 
           privilege => 'resolve');
-
+    
       DBMS_NETWORK_ACL_ADMIN.ASSIGN_ACL(
           acl => 'relp_remote.xml', 
           host => 'log.remote.host.name'); 
-
+    
       -- Configuration to get the local hostname.
       DBMS_NETWORK_ACL_ADMIN.CREATE_ACL(
           acl => 'relp_localhost.xml', 
@@ -41,11 +41,11 @@ The target schema needs to be added to the ACL with:
           principal => 'RELP_SCHEMA', 
           is_grant => true, 
           privilege => 'resolve');
-
+    
       DBMS_NETWORK_ACL_ADMIN.ASSIGN_ACL(
           acl => 'relp_localhost.xml', 
           host => 'localhost'); 
- 
+     
       COMMIT;
     END; 
     /
