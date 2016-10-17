@@ -151,6 +151,9 @@ create or replace package &&target..utl_relp is
    ** In out: p_engine      - the RELP engine.
    ** In:     p_host        - hostname.
    ** In:     p_port        - port number.
+   ** In:     p_timeout     - transaction timeout in seconds. (NULL indicates to
+   **                         wait forever. For more information see UTL_TCP.open_connection
+   **                         function.
    ** In:     p_wallet_path - path to the Oracle wallet if TLS is used.
    ** In:     p_wallet_pass - the wallet password.
    ** Note: The engine must be destructed after use with the ENGINE_DESTRUCT
@@ -160,6 +163,7 @@ create or replace package &&target..utl_relp is
       p_engine      in out nocopy relp_engine_typ,
       p_host        in            varchar2,
       p_port        in            pls_integer,
+      p_timeout     in            pls_integer     default null,
       p_wallet_path in            varchar2        default null, 
       p_wallet_pass in            varchar2        default null);
   

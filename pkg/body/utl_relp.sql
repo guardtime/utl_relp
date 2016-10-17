@@ -191,6 +191,7 @@ create or replace package body &&target..utl_relp is
       p_engine      in out nocopy relp_engine_typ,
       p_host        in            varchar2,
       p_port        in            pls_integer,
+      p_timeout     in            pls_integer     default null,
       p_wallet_path in            varchar2        default null, 
       p_wallet_pass in            varchar2        default null) is
     l_offers  varchar2(32000);
@@ -205,7 +206,8 @@ create or replace package body &&target..utl_relp is
         remote_port => p_port, 
         charset => 'UTF8',
         wallet_path => p_wallet_path,
-        wallet_password => p_wallet_pass);
+        wallet_password => p_wallet_pass,
+        tx_timeout => p_timeout);
         
     if p_wallet_path is not null or p_wallet_pass is not null then
       utl_tcp.secure_connection(p_engine.connection);
