@@ -1,3 +1,7 @@
+Version 0.2
+
+* FEATURE: Added contants for log severity and for some facilities.
+
 Version 0.1
 
 2016-10-17 release(0.1.13)

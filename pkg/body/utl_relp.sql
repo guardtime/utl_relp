@@ -18,7 +18,7 @@ create or replace package body &&target..utl_relp is
  * reserves and retains all trademark rights.
  */
  
-  type message_typ is record (
+  type frame_typ is record (
     txnr pls_integer,
     command command_typ(200),
     payload raw(32000)
@@ -26,7 +26,7 @@ create or replace package body &&target..utl_relp is
 
   lf constant varchar2(1) := chr(10);
   sp constant varchar2(1) := chr(32);
-  
+    
   procedure close_finally(p_engine in out nocopy relp_engine_typ) is
   begin
     utl_tcp.close_connection(p_engine.connection);
@@ -60,10 +60,10 @@ create or replace package body &&target..utl_relp is
     return utl_raw.cast_to_varchar2(read_token(p_connection));
   end read_string_token;
   
-  function read_response(p_connection in out nocopy utl_tcp.connection) return message_typ is
+  function read_response(p_connection in out nocopy utl_tcp.connection) return frame_typ is
     l_token raw(32000);
     l_len   pls_integer;
-    l_resp  message_typ;
+    l_resp  frame_typ;
   begin
     l_resp.txnr := to_number(read_string_token(p_connection));
     l_resp.command := read_string_token(p_connection);
@@ -87,11 +87,11 @@ create or replace package body &&target..utl_relp is
   function write_command(
       p_engine in out nocopy relp_engine_typ, 
       p_command in            varchar2, 
-      p_payload in            varchar2) return message_typ is
+      p_payload in            varchar2) return frame_typ is
     l_command raw(32000);
     l_payload raw(32000); 
     l_bytes   pls_integer;
-    l_resp    message_typ;
+    l_resp    frame_typ;
     l_lock    integer;
   begin
     l_payload := utl_raw.cast_to_raw(convert(p_payload, 'UTF8'));
@@ -197,7 +197,7 @@ create or replace package body &&target..utl_relp is
     l_offers  varchar2(32000);
     l_command command_typ;
     l_payload varchar2(32000) := '';
-    l_resp    message_typ;
+    l_resp    frame_typ;
   begin
     --close_finally(p_engine);
     
@@ -291,17 +291,15 @@ create or replace package body &&target..utl_relp is
     
   end engine_connect;
   
-  procedure write_log(
-      p_engine in out nocopy relp_engine_typ, 
+  function format_log(
       p_message in varchar2, 
       p_facility in pls_integer default null, 
       p_severity in pls_integer default null,
       p_process_id in varchar2 default null,
       p_message_id in varchar2 default null,
-      p_structured_data in varchar2 default null) is
-    l_header   varchar2(32000) := '';
+      p_structured_data in varchar2 default null) return varchar2 
+  is
     l_hostname varchar2(32000) := '';
-    l_resp     message_typ;
   begin
     begin
       l_hostname := UTL_INADDR.get_host_name;
@@ -310,23 +308,36 @@ create or replace package body &&target..utl_relp is
         then null;
     end;
   
-    l_header := l_header || '<' || ( nvl(p_facility, 16) * 8 + nvl(p_severity, 6)) || '>'; /* Priority. */
-    l_header := l_header || '1 '; /* Version. */
-    l_header := l_header || to_char(systimestamp,'YYYY-MM-DD') || 'T' || to_char(systimestamp,'HH24:MI:SS.FF') || regexp_replace(dbtimezone, '^+00:00$', 'Z') ||' '; /* Timestamp. */
-    l_header := l_header || nvl(l_hostname, '-') || ' '; /* Hostname. */
-    l_header := l_header || nvl(sys_context('userenv','db_name'), '-') || ' '; /* App-name. */
-    l_header := l_header || nvl(p_process_id, '-') || ' '; /* Process id. */
-    l_header := l_header || nvl(p_message_id, '-') || ' '; /* Message id. */
-    l_header := l_header || nvl(p_structured_data, '-') || ' '; /* Structured data. */
-
-    l_resp := write_command(p_engine, 'syslog', l_header || p_message);
+    return '<' || ( nvl(p_facility, FACILITY_LOCAL0) * 8 + nvl(p_severity, LEVEL_INFO)) || '>' /* Priority. */
+        || '1 ' /* Version. */
+        || to_char(systimestamp,'YYYY-MM-DD') || 'T' || to_char(systimestamp,'HH24:MI:SS.FF') || regexp_replace(dbtimezone, '^+00:00$', 'Z') ||' ' /* Timestamp. */
+        || nvl(l_hostname, '-') || ' ' /* Hostname. */
+        || nvl(sys_context('userenv','db_name'), '-') || ' ' /* App-name. */
+        || nvl(p_process_id, '-') || ' ' /* Process id. */
+        || nvl(p_message_id, '-') || ' ' /* Message id. */
+        || nvl(p_structured_data, '-') || ' '
+        || p_message; /* Structured data. */
+  end format_log;
+  
+  procedure write_log(
+      p_engine in out nocopy relp_engine_typ, 
+      p_message in varchar2, 
+      p_facility in pls_integer default null, 
+      p_severity in pls_integer default null,
+      p_process_id in varchar2 default null,
+      p_message_id in varchar2 default null,
+      p_structured_data in varchar2 default null) 
+  is
+    l_resp     frame_typ;
+  begin
+    l_resp := write_command(p_engine, 'syslog', format_log(p_message, p_facility, p_severity, p_process_id, p_message_id, p_structured_data));
   end write_log;
   
   procedure engine_destruct(p_engine in out nocopy relp_engine_typ) is
   begin
     -- Try to send a polite close message.
     declare
-      l_resp message_typ;
+      l_resp frame_typ;
     begin
       l_resp := write_command(p_engine, 'close', null);
     exception
@@ -341,6 +352,8 @@ create or replace package body &&target..utl_relp is
       -- TODO: Find out if we should raise some exceptions here.
       null; -- Still nothing to do.
   end engine_destruct;
+  
+  
 end utl_relp;
 /
 

@@ -135,6 +135,31 @@ create or replace package &&target..utl_relp is
     /* TCP connection. */
     connection  utl_tcp.connection
   );
+  
+  /*****************************************************************************
+   ** Constants for log severity.
+   ****************************************************************************/
+  LEVEL_EMERGENCY constant pls_integer := 0;
+  LEVEL_ALERT     constant pls_integer := 1;
+  LEVEL_CRITICAL  constant pls_integer := 2;
+  LEVEL_ERROR     constant pls_integer := 3;
+  LEVEL_WARNING   constant pls_integer := 4;
+  LEVEL_NOTICE    constant pls_integer := 5;
+  LEVEL_INFO      constant pls_integer := 6;
+  LEVEL_DEBUG     constant pls_integer := 7;
+
+  /*****************************************************************************
+   ** Constants for log facility.
+   ****************************************************************************/
+  FACILITY_AUTHPRIV constant pls_integer := 10;
+  FACILITY_LOCAL0   constant pls_integer := 16;
+  FACILITY_LOCAL1   constant pls_integer := 17;
+  FACILITY_LOCAL2   constant pls_integer := 18;
+  FACILITY_LOCAL3   constant pls_integer := 19;
+  FACILITY_LOCAL4   constant pls_integer := 20;
+  FACILITY_LOCAL5   constant pls_integer := 21;
+  FACILITY_LOCAL6   constant pls_integer := 22;
+  FACILITY_LOCAL7   constant pls_integer := 23;
 
   /*****************************************************************************
    ** Procedure: engine_enable_command
