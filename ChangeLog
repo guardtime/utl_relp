@@ -1,5 +1,9 @@
 Version 0.2
 
+2016-11-23 (release 0.2.16)
+
+* BUGFIX: Fixed syslog timestamp formatting for UTC.
+
 2016-11-16 (relese 0.2.15)
 * FEATURE: Added contants for log severity and for some facilities.
 

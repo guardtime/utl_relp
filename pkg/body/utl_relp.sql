@@ -310,7 +310,7 @@ create or replace package body &&target..utl_relp is
   
     return '<' || ( nvl(p_facility, FACILITY_LOCAL0) * 8 + nvl(p_severity, LEVEL_INFO)) || '>' /* Priority. */
         || '1 ' /* Version. */
-        || to_char(systimestamp,'YYYY-MM-DD') || 'T' || to_char(systimestamp,'HH24:MI:SS.FF') || regexp_replace(dbtimezone, '^+00:00$', 'Z') ||' ' /* Timestamp. */
+        || to_char(systimestamp,'YYYY-MM-DD') || 'T' || to_char(systimestamp,'HH24:MI:SS.FF') || regexp_replace(dbtimezone, '^[+]00:00$', 'Z') ||' ' /* Timestamp. */
         || nvl(l_hostname, '-') || ' ' /* Hostname. */
         || nvl(sys_context('userenv','db_name'), '-') || ' ' /* App-name. */
         || nvl(p_process_id, '-') || ' ' /* Process id. */
