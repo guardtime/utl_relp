@@ -4,13 +4,16 @@ This package to use RELP (Reliable Event Logging Protocol) from Oracle PL/SQL.
 
 ## Installation ##
 
+For the installation the target schema RELP\_SCHEMA (can be an arbitrary existing schema) needs to have EXECUTE grant on the UTL\_TCP package.
+
 To install the package execute the install.sql script with the target schema as its first parameter.
 
 	SQL> spool utl_relp.log
     SQL> @install.sql RELP_SCHEMA
 	SQL> spool off
 
-The target schema needs to be added to the ACL with:
+The target schema RELP\_SCHEMA needs to be added to the ACL with:
+
  * RESOLVE privilege on localhost (to be able to determine the hostname - this is sent witch each log message to the rsyslog server - see [RFC5424](https://tools.ietf.org/html/rfc5424)).
  * RESOLVE and CONNECT to the remote host where the logs are sent to.
 
