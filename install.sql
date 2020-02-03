@@ -25,3 +25,4 @@ PROMPT Installing package spec.
 PROMPT Installing package body.
 @@pkg/body/utl_relp.sql
 
+create public synonym utl_relp for &&target..utl_relp;
